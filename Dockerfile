@@ -16,7 +16,7 @@ WORKDIR /var/www
 COPY . .
 
 # Installer dépendances Laravel (dans le conteneur, avec PHP 8.2)
-RUN composer install --no-dev --optimize-autoloader
+RUN composer install --optimize-autoloader
 
 # Donner les bons droits
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
