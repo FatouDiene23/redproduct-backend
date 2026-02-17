@@ -19,7 +19,7 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 echo '📦 Installation des dépendances...'
-                sh 'docker run --rm -v $(pwd):/app -w /app composer:2.6 install --no-interaction --prefer-dist'
+                sh 'docker run --rm -v ${WORKSPACE}:/app -w /app composer:2.6 install --no-interaction --prefer-dist --no-scripts'
             }
         }
         
@@ -27,7 +27,7 @@ pipeline {
             steps {
                 echo '🧪 Exécution des tests...'
                 sh '''
-                    docker run --rm -v $(pwd):/app -w /app composer:2.6 \
+                    docker run --rm -v $(WORKSPACE):/app -w /app composer:2.6 \
                     bash -c "cd /app && php artisan test || true"
                 '''
             }
