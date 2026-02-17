@@ -1,11 +1,12 @@
 pipeline {
     agent any
-    
+
     environment {
-        DOCKER_IMAGE = 'boussofaye/redproduct-backend'
-        IMAGE_TAG = "${BUILD_NUMBER}"
+        DOCKER_IMAGE = "boussofaye/redproduct-backend"
+        DOCKER_TAG = "${env.BUILD_NUMBER}"
+        DOCKER_HUB_CREDENTIALS = 'dockerhub-credentials' // ID de vos credentials Jenkins
     }
-    
+
     stages {
         stage('Checkout') {
             steps {
@@ -13,58 +14,66 @@ pipeline {
                 checkout scm
             }
         }
-        
-        // On fusionne l'install et le build car votre Dockerfile s'en occupe
+
         stage('Build & Install') {
             steps {
-                echo '🐳 Construction de l\'image (inclut composer install)...'
-                sh '''
-                    docker build -t ${DOCKER_IMAGE}:${IMAGE_TAG} .
-                    docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${DOCKER_IMAGE}:latest
-                '''
+                echo "🐳 Construction de l'image (Build #${DOCKER_TAG})..."
+                // On build sans le --no-dev pour avoir PHPUnit disponible pour les tests
+                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
             }
         }
-        
+
         stage('Run Tests') {
             steps {
-                echo '🧪 Exécution des tests dans l\'image buildée...'
-                // On lance les tests à l'intérieur de l'image que l'on vient de construire
-                sh "docker run --rm ${DOCKER_IMAGE}:${IMAGE_TAG} php artisan test --env=testing"
+                echo '🧪 Préparation de l\'environnement et exécution des tests...'
+                /* On enchaîne les commandes dans le même container :
+                   1. Créer le .env
+                   2. Générer la clé (indispensable pour les Feature Tests)
+                   3. Lancer les tests
+                */
+                sh """
+                    docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} sh -c "
+                        cp .env.example .env && 
+                        php artisan key:generate --env=testing && 
+                        php artisan test --env=testing
+                    "
+                """
             }
         }
-        
+
         stage('Trivy Scan') {
             steps {
-                echo '🔒 Scan de sécurité Trivy...'
-                sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${IMAGE_TAG} || true"
+                echo '🛡️ Analyse de sécurité de l\'image...'
+                // Optionnel : nécessite l'installation de Trivy sur le serveur Jenkins
+                sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG}"
             }
         }
-        
+
         stage('Push to Docker Hub') {
             steps {
-                echo '🚀 Push vers Docker Hub...'
+                echo '🚀 Publication de l\'image sur Docker Hub...'
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', passwordVariable: 'PASS', usernameVariable: 'USER')]) {
-                        sh "echo ${PASS} | docker login -u ${USER} --password-stdin"
-                        sh "docker push ${DOCKER_IMAGE}:${IMAGE_TAG}"
-                        sh "docker push ${DOCKER_IMAGE}:latest"
-                        sh "docker logout"
+                    docker.withRegistry('', DOCKER_HUB_CREDENTIALS) {
+                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
+                        docker.image("${DOCKER_IMAGE}:latest").push()
                     }
                 }
             }
         }
     }
-    
+
     post {
+        always {
+            echo '🧹 Nettoyage des images locales pour libérer de l\'espace...'
+            sh "docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest || true"
+            sh "docker system prune -f"
+        }
         success {
-            echo '✅ Pipeline réussi!'
+            echo '✅ Pipeline terminé avec succès !'
         }
         failure {
-            echo '❌ Pipeline échoué'
-        }
-        always {
-            echo '🧹 Nettoyage...'
-            sh 'docker system prune -f || true'
+            echo '❌ Le pipeline a échoué. Vérifiez les logs ci-dessus.'
         }
     }
 }
