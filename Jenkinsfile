@@ -42,13 +42,7 @@ pipeline {
             }
         }
 
-        stage('Trivy Scan') {
-            steps {
-                echo '🛡️ Analyse de sécurité de l\'image...'
-                // Optionnel : nécessite l'installation de Trivy sur le serveur Jenkins
-                sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG}"
-            }
-        }
+        
 
         stage('Push to Docker Hub') {
             steps {
